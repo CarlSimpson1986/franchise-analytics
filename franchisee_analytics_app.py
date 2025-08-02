@@ -121,7 +121,7 @@ def process_marketing_data(marketing_df):
             pass
     
     # Try to find amount/spend column
-    amount_columns = ['Amount', 'amount', 'Spend', 'spend', 'Cost', 'cost', 'Amount Spent', 'Amount (GBP)', 'Amount (USD)', 'Spent']
+    amount_columns = ['Amount', 'amount', 'Spend', 'spend', 'Cost', 'cost', 'Amount Spent', 'Amount spent (GBP)', 'Amount spent (USD)', 'Amount (GBP)', 'Amount (USD)', 'Spent']
     amount_col = None
     for col in amount_columns:
         if col in marketing_df.columns:
