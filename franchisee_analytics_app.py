@@ -224,7 +224,7 @@ if uploaded_files:
                                       title="Membership Revenue % Over Time",
                                       labels={'Membership_Pct': 'Membership %', 'Month_Name': 'Month'},
                                       markers=True)
-                fig_evolution.update_yaxis(range=[0, 100])
+               fig_evolution.update_layout(yaxis=dict(range=[0, 100]))
                 st.plotly_chart(fig_evolution, use_container_width=True)
         
         else:
