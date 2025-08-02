@@ -103,9 +103,6 @@ def process_marketing_data(marketing_df):
     if len(marketing_df) == 0:
         return marketing_df
     
-    # Debug: Show what columns we have
-    st.write("Debug - Marketing CSV columns:", marketing_df.columns.tolist())
-    
     # Try to standardize date column
     date_columns = ['Date', 'date', 'DATE', 'Day', 'day']
     date_col = None
