@@ -64,6 +64,13 @@ import plotly.graph_objects as go
 from datetime import datetime
 import numpy as np
 
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime
+import numpy as np
+
 st.set_page_config(
     page_title="MyFitPod Complete Business Analytics",
     page_icon="🏋️",
