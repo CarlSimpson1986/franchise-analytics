@@ -103,6 +103,9 @@ def process_marketing_data(marketing_df):
     if len(marketing_df) == 0:
         return marketing_df
     
+    # Debug: Show what columns we have
+    st.write("Debug - Marketing CSV columns:", marketing_df.columns.tolist())
+    
     # Try to standardize date column
     date_columns = ['Date', 'date', 'DATE', 'Day', 'day']
     date_col = None
@@ -112,10 +115,13 @@ def process_marketing_data(marketing_df):
             break
     
     if date_col:
-        marketing_df['Date'] = pd.to_datetime(marketing_df[date_col], errors='coerce', dayfirst=True)
+        try:
+            marketing_df['Date'] = pd.to_datetime(marketing_df[date_col], errors='coerce', dayfirst=True)
+        except:
+            pass
     
     # Try to find amount/spend column
-    amount_columns = ['Amount', 'amount', 'Spend', 'spend', 'Cost', 'cost', 'Amount Spent', 'Amount (GBP)']
+    amount_columns = ['Amount', 'amount', 'Spend', 'spend', 'Cost', 'cost', 'Amount Spent', 'Amount (GBP)', 'Amount (USD)', 'Spent']
     amount_col = None
     for col in amount_columns:
         if col in marketing_df.columns:
@@ -123,7 +129,14 @@ def process_marketing_data(marketing_df):
             break
     
     if amount_col:
-        marketing_df['Amount'] = pd.to_numeric(marketing_df[amount_col], errors='coerce')
+        try:
+            marketing_df['Amount'] = pd.to_numeric(marketing_df[amount_col], errors='coerce')
+        except:
+            marketing_df['Amount'] = 0
+    else:
+        # No amount column found - create a default one
+        marketing_df['Amount'] = 0
+        st.warning(f"⚠️ No amount/spend column found in marketing data. Expected columns: {amount_columns}")
     
     # Add platform if not present
     if 'Platform' not in marketing_df.columns and 'platform' not in marketing_df.columns:
@@ -162,20 +175,36 @@ def calculate_business_metrics(df):
     }
 
 def calculate_marketing_metrics(marketing_df, total_revenue):
-    """Calculate marketing ROI metrics"""
-    if len(marketing_df) == 0:
-        return {}
+    """Calculate marketing ROI metrics - FIXED VERSION"""
+    # Return safe defaults if no marketing data or no Amount column
+    if len(marketing_df) == 0 or 'Amount' not in marketing_df.columns:
+        return {
+            'total_spend': 0,
+            'roi': 0,
+            'cost_per_revenue': 0,
+            'profit_after_ads': total_revenue
+        }
     
-    total_spend = marketing_df['Amount'].sum()
-    roi = (total_revenue / total_spend) if total_spend > 0 else 0
-    cost_per_revenue = (total_spend / total_revenue) if total_revenue > 0 else 0
-    
-    return {
-        'total_spend': total_spend,
-        'roi': roi,
-        'cost_per_revenue': cost_per_revenue,
-        'profit_after_ads': total_revenue - total_spend
-    }
+    # Calculate metrics only if we have valid Amount data
+    try:
+        total_spend = marketing_df['Amount'].sum()
+        roi = (total_revenue / total_spend) if total_spend > 0 else 0
+        cost_per_revenue = (total_spend / total_revenue) if total_revenue > 0 else 0
+        
+        return {
+            'total_spend': total_spend,
+            'roi': roi,
+            'cost_per_revenue': cost_per_revenue,
+            'profit_after_ads': total_revenue - total_spend
+        }
+    except:
+        # Fallback to safe defaults if anything goes wrong
+        return {
+            'total_spend': 0,
+            'roi': 0,
+            'cost_per_revenue': 0,
+            'profit_after_ads': total_revenue
+        }
 
 if uploaded_transaction_files:
     # Load transaction data
@@ -205,8 +234,11 @@ if uploaded_transaction_files:
         
         # Process marketing data dates if available
         if len(marketing_df) > 0 and 'Date' in marketing_df.columns:
-            marketing_df['Month'] = marketing_df['Date'].dt.to_period('M')
-            marketing_df['Month_Name'] = marketing_df['Date'].dt.strftime('%B %Y')
+            try:
+                marketing_df['Month'] = marketing_df['Date'].dt.to_period('M')
+                marketing_df['Month_Name'] = marketing_df['Date'].dt.strftime('%B %Y')
+            except:
+                pass
         
         # Determine data range
         unique_months = transaction_df['Month'].nunique()
@@ -222,16 +254,16 @@ if uploaded_transaction_files:
         # Executive Summary
         st.markdown("## 📊 Executive Summary")
         
-        if len(marketing_df) > 0:
+        if len(marketing_df) > 0 and marketing_metrics['total_spend'] > 0:
             # With marketing data - 5 columns
             col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
                 st.metric("💰 Total Revenue", f"£{business_metrics['total_revenue']:,.0f}")
             with col2:
-                st.metric("📱 Marketing Spend", f"£{marketing_metrics.get('total_spend', 0):,.0f}")
+                st.metric("📱 Marketing Spend", f"£{marketing_metrics['total_spend']:,.0f}")
             with col3:
-                st.metric("🎯 Marketing ROI", f"{marketing_metrics.get('roi', 0):.1f}x")
+                st.metric("🎯 Marketing ROI", f"{marketing_metrics['roi']:.1f}x")
             with col4:
                 st.metric("👥 Customers", f"{business_metrics['unique_customers']:,}")
             with col5:
@@ -239,7 +271,7 @@ if uploaded_transaction_files:
                     monthly_avg = business_metrics['total_revenue'] / unique_months
                     st.metric("📅 Monthly Avg Revenue", f"£{monthly_avg:,.0f}")
                 else:
-                    st.metric("💰 Profit After Ads", f"£{marketing_metrics.get('profit_after_ads', 0):,.0f}")
+                    st.metric("💰 Profit After Ads", f"£{marketing_metrics['profit_after_ads']:,.0f}")
         else:
             # Without marketing data - 4 columns
             col1, col2, col3, col4 = st.columns(4)
@@ -260,14 +292,14 @@ if uploaded_transaction_files:
         st.markdown("---")
         
         # Marketing ROI Analysis (if marketing data available)
-        if len(marketing_df) > 0:
+        if len(marketing_df) > 0 and marketing_metrics['total_spend'] > 0:
             st.markdown("## 📱 Marketing ROI Analysis")
             
             col1, col2 = st.columns(2)
             
             with col1:
                 # ROI gauge
-                roi_value = marketing_metrics.get('roi', 0)
+                roi_value = marketing_metrics['roi']
                 fig_roi = go.Figure(go.Indicator(
                     mode = "gauge+number",
                     value = roi_value,
@@ -292,137 +324,24 @@ if uploaded_transaction_files:
                 st.plotly_chart(fig_roi, use_container_width=True)
             
             with col2:
-                # Marketing spend breakdown
-                if 'Platform' in marketing_df.columns:
-                    platform_spend = marketing_df.groupby('Platform')['Amount'].sum()
-                    fig_platform = px.pie(values=platform_spend.values, names=platform_spend.index,
-                                        title="Marketing Spend by Platform")
-                    st.plotly_chart(fig_platform, use_container_width=True)
-                else:
-                    # ROI insights
-                    st.markdown("### 💡 Marketing Insights")
-                    
-                    roi_insights = []
-                    if roi_value > 10:
-                        roi_insights.append("🚀 **Excellent ROI** - Marketing is highly profitable")
-                    elif roi_value > 5:
-                        roi_insights.append("✅ **Good ROI** - Marketing is profitable")
-                    elif roi_value > 3:
-                        roi_insights.append("⚠️ **Moderate ROI** - Room for optimization")
-                    else:
-                        roi_insights.append("❌ **Low ROI** - Review marketing strategy")
-                    
-                    cost_per_pound = marketing_metrics.get('cost_per_revenue', 0)
-                    roi_insights.append(f"💰 **Cost efficiency**: £{cost_per_pound:.2f} spent per £1 revenue")
-                    
-                    for insight in roi_insights:
-                        st.info(insight)
-            
-            # Monthly marketing vs revenue trends
-            if unique_months > 1:
-                st.markdown("### 📈 Marketing vs Revenue Trends")
+                # Marketing insights
+                st.markdown("### 💡 Marketing Insights")
                 
-                # Monthly revenue data
-                monthly_revenue = transaction_df.groupby(['Month', 'Month_Name'])['Amount Inc Tax'].sum().reset_index()
-                monthly_revenue = monthly_revenue.sort_values('Month')
-                
-                # Monthly marketing spend data
-                if 'Month' in marketing_df.columns:
-                    monthly_marketing = marketing_df.groupby(['Month', 'Month_Name'])['Amount'].sum().reset_index()
-                    monthly_marketing = monthly_marketing.sort_values('Month')
-                    
-                    # Merge data
-                    monthly_combined = pd.merge(monthly_revenue, monthly_marketing, on=['Month', 'Month_Name'], how='left')
-                    monthly_combined['Amount'] = monthly_combined['Amount'].fillna(0)
-                    monthly_combined['ROI'] = monthly_combined['Amount Inc Tax'] / monthly_combined['Amount'].replace(0, 1)
-                    
-                    # Create dual-axis chart
-                    fig_trends = go.Figure()
-                    
-                    # Revenue line
-                    fig_trends.add_trace(go.Scatter(
-                        x=monthly_combined['Month_Name'],
-                        y=monthly_combined['Amount Inc Tax'],
-                        mode='lines+markers',
-                        name='Revenue',
-                        line=dict(color='blue', width=3),
-                        yaxis='y'
-                    ))
-                    
-                    # Marketing spend bars
-                    fig_trends.add_trace(go.Bar(
-                        x=monthly_combined['Month_Name'],
-                        y=monthly_combined['Amount'],
-                        name='Marketing Spend',
-                        marker_color='lightcoral',
-                        yaxis='y2'
-                    ))
-                    
-                    # Update layout for dual axis
-                    fig_trends.update_layout(
-                        title="Monthly Revenue vs Marketing Spend",
-                        xaxis_title="Month",
-                        yaxis=dict(title="Revenue (£)", side="left"),
-                        yaxis2=dict(title="Marketing Spend (£)", side="right", overlaying="y"),
-                        height=400
-                    )
-                    
-                    st.plotly_chart(fig_trends, use_container_width=True)
-        
-        # Multi-month trend analysis
-        if unique_months > 1:
-            st.markdown("## 📈 Multi-Month Business Trends")
-            
-            # Monthly revenue trends
-            monthly_data = transaction_df.groupby(['Month', 'Month_Name']).agg({
-                'Amount Inc Tax': 'sum',
-                'Sold To': 'nunique'
-            }).reset_index()
-            monthly_data = monthly_data.sort_values('Month').reset_index(drop=True)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Revenue trend
-                fig_revenue = px.line(monthly_data, x='Month_Name', y='Amount Inc Tax',
-                                    title="Monthly Revenue Trend",
-                                    labels={'Amount Inc Tax': 'Revenue (£)', 'Month_Name': 'Month'},
-                                    markers=True)
-                fig_revenue.add_hline(y=6000, line_dash="dash", line_color="red", 
-                                    annotation_text="£6K Target")
-                st.plotly_chart(fig_revenue, use_container_width=True)
-            
-            with col2:
-                # Customer growth
-                fig_customers = px.line(monthly_data, x='Month_Name', y='Sold To',
-                                      title="Monthly Customer Count",
-                                      labels={'Sold To': 'Customers', 'Month_Name': 'Month'},
-                                      markers=True)
-                st.plotly_chart(fig_customers, use_container_width=True)
-            
-            # Target achievement analysis
-            st.markdown("### 🎯 Monthly Performance Summary")
-            monthly_data['Target_Hit'] = monthly_data['Amount Inc Tax'] >= 6000
-            months_above_target = monthly_data['Target_Hit'].sum()
-            total_months = len(monthly_data)
-            success_rate = (months_above_target / total_months) * 100
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Months Above £6K", f"{months_above_target}/{total_months}")
-            with col2:
-                st.metric("Success Rate", f"{success_rate:.1f}%")
-            with col3:
-                avg_monthly = monthly_data['Amount Inc Tax'].mean()
-                st.metric("Average Monthly Revenue", f"£{avg_monthly:,.0f}")
-            with col4:
-                if len(monthly_data) >= 2:
-                    recent_month = monthly_data['Amount Inc Tax'].iloc[-1]
-                    previous_month = monthly_data['Amount Inc Tax'].iloc[-2]
-                    growth_rate = ((recent_month - previous_month) / previous_month) * 100
-                    st.metric("Latest Month Growth", f"{growth_rate:+.1f}%")
+                roi_insights = []
+                if roi_value > 10:
+                    roi_insights.append("🚀 **Excellent ROI** - Marketing is highly profitable")
+                elif roi_value > 5:
+                    roi_insights.append("✅ **Good ROI** - Marketing is profitable")
+                elif roi_value > 3:
+                    roi_insights.append("⚠️ **Moderate ROI** - Room for optimization")
                 else:
-                    st.metric("Growth Rate", "N/A")
+                    roi_insights.append("❌ **Low ROI** - Review marketing strategy")
+                
+                cost_per_pound = marketing_metrics['cost_per_revenue']
+                roi_insights.append(f"💰 **Cost efficiency**: £{cost_per_pound:.2f} spent per £1 revenue")
+                
+                for insight in roi_insights:
+                    st.info(insight)
         
         # Revenue Analysis
         st.markdown("## 💰 Revenue Analysis")
@@ -462,8 +381,8 @@ if uploaded_transaction_files:
             insights.append("📈 **Growth opportunity** - Focus on converting PAYG customers to memberships")
         
         # Marketing insights
-        if len(marketing_df) > 0:
-            roi_value = marketing_metrics.get('roi', 0)
+        if len(marketing_df) > 0 and marketing_metrics['total_spend'] > 0:
+            roi_value = marketing_metrics['roi']
             if roi_value > 8:
                 insights.append("🚀 **Excellent marketing ROI** - Scale up advertising investment")
             elif roi_value > 5:
