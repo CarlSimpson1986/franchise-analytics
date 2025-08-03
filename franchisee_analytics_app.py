@@ -465,6 +465,253 @@ if uploaded_transaction_files:
                 for insight in roi_insights:
                     st.info(insight)
         
+        # Enhanced Customer Value Analytics
+        if 'Sold To' in transaction_df.columns:
+            st.markdown("## 👥 Customer Value Intelligence")
+            
+            # Calculate customer metrics
+            customer_analysis = transaction_df.groupby('Sold To').agg({
+                'Amount Inc Tax': ['sum', 'count', 'mean'],
+                'Date': ['min', 'max'],
+                'Quantity Sold': 'sum' if 'Quantity Sold' in transaction_df.columns else 'count'
+            }).round(2)
+            
+            customer_analysis.columns = ['LTV', 'Transactions', 'Avg_Spend', 'First_Purchase', 'Last_Purchase', 'Total_Units']
+            customer_analysis = customer_analysis.reset_index()
+            
+            # Calculate customer tenure and frequency
+            customer_analysis['Tenure_Days'] = (customer_analysis['Last_Purchase'] - customer_analysis['First_Purchase']).dt.days
+            customer_analysis['Purchase_Frequency'] = customer_analysis['Transactions'] / (customer_analysis['Tenure_Days'].replace(0, 1) / 30.44)  # Purchases per month
+            
+            # Customer segments
+            customer_analysis['Customer_Segment'] = pd.cut(customer_analysis['LTV'], 
+                                                         bins=[0, 25, 75, 150, float('inf')], 
+                                                         labels=['Low Value', 'Medium Value', 'High Value', 'VIP'])
+            
+            # Overall LTV metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                avg_ltv = customer_analysis['LTV'].mean()
+                st.metric("💎 Average Customer LTV", f"£{avg_ltv:.2f}")
+            
+            with col2:
+                median_ltv = customer_analysis['LTV'].median()
+                st.metric("📊 Median Customer LTV", f"£{median_ltv:.2f}")
+            
+            with col3:
+                avg_transactions = customer_analysis['Transactions'].mean()
+                st.metric("🔄 Avg Transactions/Customer", f"{avg_transactions:.1f}")
+            
+            with col4:
+                avg_frequency = customer_analysis['Purchase_Frequency'].mean()
+                st.metric("📅 Avg Purchase Frequency", f"{avg_frequency:.1f}/month")
+            
+            # LTV Distribution and Customer Segments
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # LTV distribution
+                fig_ltv_dist = px.histogram(customer_analysis, x='LTV', nbins=20,
+                                          title="Customer Lifetime Value Distribution")
+                fig_ltv_dist.update_layout(xaxis_title="Customer LTV (£)", yaxis_title="Number of Customers")
+                st.plotly_chart(fig_ltv_dist, use_container_width=True)
+            
+            with col2:
+                # Customer segments
+                segment_counts = customer_analysis['Customer_Segment'].value_counts()
+                fig_segments = px.pie(values=segment_counts.values, names=segment_counts.index,
+                                    title="Customer Segments by Value")
+                st.plotly_chart(fig_segments, use_container_width=True)
+            
+            # Customer Acquisition Cost (CAC) Analysis
+            if len(marketing_df) > 0 and promotion_analysis['has_promotion_data']:
+                st.markdown("### 💰 Customer Acquisition Cost (CAC) Analysis")
+                
+                # Calculate CAC for each promotion period
+                cac_analysis = []
+                
+                for period in promotion_analysis['promotion_periods']:
+                    if 'start_date' in period and 'end_date' in period:
+                        period_start = period['start_date']
+                        period_end = period['end_date']
+                        campaign_spend = period.get('spend', 0)
+                        campaign_name = period.get('campaign_name', 'Campaign')
+                        
+                        # Find new customers during this period (first purchase in this timeframe)
+                        new_customers_in_period = customer_analysis[
+                            (customer_analysis['First_Purchase'] >= period_start) & 
+                            (customer_analysis['First_Purchase'] <= period_end)
+                        ]
+                        
+                        new_customer_count = len(new_customers_in_period)
+                        cac = campaign_spend / new_customer_count if new_customer_count > 0 else 0
+                        
+                        # Calculate LTV of new customers acquired during this period
+                        new_customer_ltv = new_customers_in_period['LTV'].mean() if new_customer_count > 0 else 0
+                        ltv_cac_ratio = new_customer_ltv / cac if cac > 0 else 0
+                        
+                        # Calculate payback period (time to recover CAC)
+                        avg_monthly_spend = new_customers_in_period['Avg_Spend'].mean() if new_customer_count > 0 else 0
+                        avg_frequency = new_customers_in_period['Purchase_Frequency'].mean() if new_customer_count > 0 else 0
+                        monthly_value = avg_monthly_spend * avg_frequency
+                        payback_months = cac / monthly_value if monthly_value > 0 else float('inf')
+                        
+                        cac_analysis.append({
+                            'Campaign': campaign_name,
+                            'Period': f"{period_start.strftime('%b %d')} - {period_end.strftime('%b %d')}",
+                            'Marketing_Spend': campaign_spend,
+                            'New_Customers': new_customer_count,
+                            'CAC': cac,
+                            'Avg_New_Customer_LTV': new_customer_ltv,
+                            'LTV_CAC_Ratio': ltv_cac_ratio,
+                            'Payback_Months': payback_months
+                        })
+                
+                if cac_analysis:
+                    cac_df = pd.DataFrame(cac_analysis)
+                    
+                    # CAC Metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        avg_cac = cac_df['CAC'].mean()
+                        st.metric("📈 Average CAC", f"£{avg_cac:.2f}")
+                    
+                    with col2:
+                        avg_ltv_new = cac_df['Avg_New_Customer_LTV'].mean()
+                        st.metric("💎 New Customer Avg LTV", f"£{avg_ltv_new:.2f}")
+                    
+                    with col3:
+                        avg_ratio = cac_df['LTV_CAC_Ratio'].mean()
+                        st.metric("⚖️ LTV:CAC Ratio", f"{avg_ratio:.1f}:1")
+                    
+                    with col4:
+                        avg_payback = cac_df[cac_df['Payback_Months'] != float('inf')]['Payback_Months'].mean()
+                        st.metric("⏱️ Avg Payback Period", f"{avg_payback:.1f} months" if not pd.isna(avg_payback) else "N/A")
+                    
+                    # CAC Analysis Charts
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # CAC by campaign
+                        fig_cac = px.bar(cac_df, x='Campaign', y='CAC',
+                                       title="Customer Acquisition Cost by Campaign")
+                        fig_cac.update_layout(xaxis_title="Campaign", yaxis_title="CAC (£)")
+                        st.plotly_chart(fig_cac, use_container_width=True)
+                    
+                    with col2:
+                        # LTV:CAC Ratio by campaign
+                        fig_ratio = px.bar(cac_df, x='Campaign', y='LTV_CAC_Ratio',
+                                         title="LTV:CAC Ratio by Campaign")
+                        fig_ratio.add_hline(y=3, line_dash="dash", line_color="green", 
+                                          annotation_text="3:1 Good Benchmark")
+                        fig_ratio.update_layout(xaxis_title="Campaign", yaxis_title="LTV:CAC Ratio")
+                        st.plotly_chart(fig_ratio, use_container_width=True)
+                    
+                    # Detailed CAC table
+                    st.markdown("#### 📊 Detailed CAC Analysis")
+                    display_cac = cac_df.copy()
+                    display_cac['Marketing_Spend'] = display_cac['Marketing_Spend'].apply(lambda x: f"£{x:,.0f}")
+                    display_cac['CAC'] = display_cac['CAC'].apply(lambda x: f"£{x:.2f}")
+                    display_cac['Avg_New_Customer_LTV'] = display_cac['Avg_New_Customer_LTV'].apply(lambda x: f"£{x:.2f}")
+                    display_cac['LTV_CAC_Ratio'] = display_cac['LTV_CAC_Ratio'].apply(lambda x: f"{x:.1f}:1")
+                    display_cac['Payback_Months'] = display_cac['Payback_Months'].apply(lambda x: f"{x:.1f}" if x != float('inf') else "∞")
+                    display_cac.columns = ['Campaign', 'Period', 'Spend', 'New Customers', 'CAC', 'New Customer LTV', 'LTV:CAC', 'Payback (Months)']
+                    st.dataframe(display_cac, use_container_width=True, hide_index=True)
+                    
+                    # CAC Insights
+                    st.markdown("#### 💡 Customer Acquisition Insights")
+                    
+                    cac_insights = []
+                    
+                    # Overall LTV:CAC ratio assessment
+                    if avg_ratio >= 3:
+                        cac_insights.append(f"✅ **Excellent LTV:CAC ratio** - {avg_ratio:.1f}:1 indicates highly profitable customer acquisition")
+                    elif avg_ratio >= 2:
+                        cac_insights.append(f"⚠️ **Moderate LTV:CAC ratio** - {avg_ratio:.1f}:1 is acceptable but could be optimized")
+                    else:
+                        cac_insights.append(f"❌ **Low LTV:CAC ratio** - {avg_ratio:.1f}:1 indicates customer acquisition may be unprofitable")
+                    
+                    # Payback period assessment
+                    if not pd.isna(avg_payback):
+                        if avg_payback <= 6:
+                            cac_insights.append(f"🚀 **Fast payback period** - {avg_payback:.1f} months to recover acquisition costs")
+                        elif avg_payback <= 12:
+                            cac_insights.append(f"📊 **Reasonable payback** - {avg_payback:.1f} months payback period")
+                        else:
+                            cac_insights.append(f"⏳ **Long payback period** - {avg_payback:.1f} months may indicate high acquisition costs")
+                    
+                    # Best performing campaign
+                    best_campaign = cac_df.loc[cac_df['LTV_CAC_Ratio'].idxmax()]
+                    cac_insights.append(f"🏆 **Best campaign**: {best_campaign['Campaign']} with {best_campaign['LTV_CAC_Ratio']:.1f}:1 ratio")
+                    
+                    for insight in cac_insights:
+                        st.info(insight)
+                
+                else:
+                    st.info("💡 **CAC analysis requires customers acquired during campaign periods.** Ensure your transaction data includes the campaign timeframes for accurate acquisition cost calculation.")
+            
+            # Customer Cohort Analysis
+            st.markdown("### 📈 Customer Acquisition Trends")
+            
+            # Monthly customer acquisition
+            customer_analysis['First_Purchase_Month'] = customer_analysis['First_Purchase'].dt.to_period('M')
+            monthly_acquisition = customer_analysis.groupby('First_Purchase_Month').agg({
+                'Sold To': 'count',
+                'LTV': 'mean'
+            }).reset_index()
+            monthly_acquisition.columns = ['Month', 'New_Customers', 'Avg_LTV']
+            monthly_acquisition['Month_Str'] = monthly_acquisition['Month'].astype(str)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Monthly new customer acquisition
+                fig_acquisition = px.bar(monthly_acquisition, x='Month_Str', y='New_Customers',
+                                       title="New Customer Acquisition by Month")
+                fig_acquisition.update_layout(xaxis_title="Month", yaxis_title="New Customers")
+                st.plotly_chart(fig_acquisition, use_container_width=True)
+            
+            with col2:
+                # Average LTV of new customers by month
+                fig_ltv_trend = px.line(monthly_acquisition, x='Month_Str', y='Avg_LTV',
+                                      title="Average LTV of New Customers by Month", markers=True)
+                fig_ltv_trend.update_layout(xaxis_title="Month", yaxis_title="Average LTV (£)")
+                st.plotly_chart(fig_ltv_trend, use_container_width=True)
+            
+            # High-value customer analysis
+            st.markdown("### 💎 High-Value Customer Analysis")
+            
+            # Top customers
+            top_customers = customer_analysis.nlargest(10, 'LTV')
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**🏆 Top 10 Customers by LTV:**")
+                display_top = top_customers[['Sold To', 'LTV', 'Transactions', 'Customer_Segment']].copy()
+                display_top['LTV'] = display_top['LTV'].apply(lambda x: f"£{x:.2f}")
+                display_top.columns = ['Customer', 'LTV', 'Orders', 'Segment']
+                st.dataframe(display_top, use_container_width=True, hide_index=True)
+            
+            with col2:
+                # Customer segment metrics
+                segment_analysis = customer_analysis.groupby('Customer_Segment').agg({
+                    'LTV': ['mean', 'count'],
+                    'Transactions': 'mean',
+                    'Purchase_Frequency': 'mean'
+                }).round(2)
+                segment_analysis.columns = ['Avg_LTV', 'Customer_Count', 'Avg_Transactions', 'Avg_Frequency']
+                segment_analysis = segment_analysis.reset_index()
+                
+                st.markdown("**📊 Customer Segment Analysis:**")
+                display_segments = segment_analysis.copy()
+                display_segments['Avg_LTV'] = display_segments['Avg_LTV'].apply(lambda x: f"£{x:.2f}")
+                display_segments['Avg_Frequency'] = display_segments['Avg_Frequency'].apply(lambda x: f"{x:.1f}/month")
+                display_segments.columns = ['Segment', 'Avg LTV', 'Count', 'Avg Orders', 'Frequency']
+                st.dataframe(display_segments, use_container_width=True, hide_index=True)
+        
         # Product Performance Analysis
         st.markdown("## 💰 Product Performance Analysis")
         
@@ -631,88 +878,31 @@ if uploaded_transaction_files:
                                     title="Units Sold by Product (Campaign Period)"
                                 )
                                 st.plotly_chart(fig_promo_qty, use_container_width=True)
-                            
-                            # Detailed product performance table
-                            if selected_product != 'All Products':
-                                st.markdown(f"### 📊 {selected_product} Detailed Performance")
-                                
-                                # Filter for selected product only
-                                selected_product_data = promo_results['product_performance'][
-                                    promo_results['product_performance']['Item'] == selected_product
-                                ]
-                                
-                                if len(selected_product_data) > 0:
-                                    product_row = selected_product_data.iloc[0]
-                                    
-                                    col1, col2, col3, col4 = st.columns(4)
-                                    with col1:
-                                        st.metric("Product Revenue", f"£{product_row['Revenue']:,.2f}")
-                                    with col2:
-                                        st.metric("Units Sold", f"{product_row['Units_Sold']:,.0f}")
-                                    with col3:
-                                        st.metric("Average Price", f"£{product_row['Avg_Price']:,.2f}")
-                                    with col4:
-                                        st.metric("Customers", f"{product_row['Customers']:,.0f}")
-                                else:
-                                    st.warning(f"⚠️ No {selected_product} sales during this campaign period")
                         
                         # Campaign attribution insights
                         st.markdown("### 💡 Campaign Attribution Insights")
                         
-                        if selected_product != 'All Products':
-                            # Product-specific insights
-                            total_campaign_revenue = promo_results['promotion_revenue']
-                            product_attribution = (total_campaign_revenue / promo_period.get('spend', 1)) if promo_period.get('spend', 0) > 0 else 0
-                            
-                            attribution_insights = []
-                            
-                            if product_attribution > 3:
-                                attribution_insights.append(f"✅ **{selected_product} campaign profitable** - {product_attribution:.1f}x ROI")
-                            elif product_attribution > 1:
-                                attribution_insights.append(f"⚠️ **{selected_product} campaign break-even** - {product_attribution:.1f}x ROI")
-                            else:
-                                attribution_insights.append(f"❌ **{selected_product} campaign unprofitable** - {product_attribution:.1f}x ROI")
-                            
-                            if promo_results['revenue_lift'] > 20:
-                                attribution_insights.append(f"📈 **Strong {selected_product} lift** - {promo_results['revenue_lift']:.1f}% increase vs baseline")
-                            elif promo_results['revenue_lift'] > 0:
-                                attribution_insights.append(f"📊 **Moderate {selected_product} lift** - {promo_results['revenue_lift']:.1f}% increase")
-                            else:
-                                attribution_insights.append(f"⚠️ **{selected_product} performance declined** during campaign")
+                        attribution_insights = []
                         
+                        if promo_results['incremental_roi'] > 5:
+                            attribution_insights.append("🚀 **Excellent campaign ROI** - Scale up similar campaigns")
+                        elif promo_results['incremental_roi'] > 2:
+                            attribution_insights.append("✅ **Profitable campaign** - Good incremental return")
+                        elif promo_results['incremental_roi'] > 0:
+                            attribution_insights.append("⚠️ **Marginal campaign** - Consider optimization")
                         else:
-                            # Overall campaign insights
-                            attribution_insights = []
-                            
-                            if promo_results['incremental_roi'] > 5:
-                                attribution_insights.append("🚀 **Excellent campaign ROI** - Scale up similar campaigns")
-                            elif promo_results['incremental_roi'] > 2:
-                                attribution_insights.append("✅ **Profitable campaign** - Good incremental return")
-                            elif promo_results['incremental_roi'] > 0:
-                                attribution_insights.append("⚠️ **Marginal campaign** - Consider optimization")
-                            else:
-                                attribution_insights.append("❌ **Unprofitable campaign** - Review strategy")
-                            
-                            if promo_results['revenue_lift'] > 20:
-                                attribution_insights.append(f"📈 **Strong overall lift** - {promo_results['revenue_lift']:.1f}% increase vs baseline")
-                            elif promo_results['revenue_lift'] > 10:
-                                attribution_insights.append(f"📊 **Moderate overall lift** - {promo_results['revenue_lift']:.1f}% increase")
-                            
-                            if promo_results['customer_lift'] > 15:
-                                attribution_insights.append("👥 **Great customer acquisition** - Attracting new customers")
+                            attribution_insights.append("❌ **Unprofitable campaign** - Review strategy")
+                        
+                        if promo_results['revenue_lift'] > 20:
+                            attribution_insights.append(f"📈 **Strong revenue lift** - {promo_results['revenue_lift']:.1f}% increase vs baseline")
+                        elif promo_results['revenue_lift'] > 10:
+                            attribution_insights.append(f"📊 **Moderate revenue lift** - {promo_results['revenue_lift']:.1f}% increase")
+                        
+                        if promo_results['customer_lift'] > 15:
+                            attribution_insights.append("👥 **Great customer acquisition** - Attracting new customers")
                         
                         for insight in attribution_insights:
                             st.info(insight)
-                
-                # Campaign comparison section
-                st.markdown("### 🔄 Quick Campaign Comparison")
-                st.info("""
-                **💡 Pro Tip:** Try analyzing different products with the same campaign to see:
-                - Which products benefited most from the campaign
-                - Overall campaign effectiveness vs product-specific impact
-                - Cross-selling opportunities (Smart Saver ad → Membership sales)
-                """)
-        
         
         elif len(marketing_df) > 0:
             st.markdown("## 🎯 Promotion Analysis")
@@ -803,6 +993,12 @@ else:
     - Revenue lift calculation
     - Incremental ROI tracking
     
+    **👥 Customer Value Intelligence:**
+    - Customer Lifetime Value (LTV) analysis
+    - Customer Acquisition Cost (CAC) tracking
+    - LTV:CAC ratio optimization
+    - Customer segmentation and cohort analysis
+    
     **💡 Intelligent Insights:**
     - Automated business recommendations
     - Growth opportunity identification
@@ -813,6 +1009,7 @@ else:
     - **Multi-file upload** - Combine multiple months of data
     - **Marketing integration** - Upload ad spend from any platform
     - **Flexible promotion tracking** - Analyze any campaign period
+    - **Customer analytics** - LTV, CAC, and segmentation
     - **Quantity analysis** - Track units sold vs revenue
     - **Professional dashboards** - Executive-ready reports
     
@@ -822,7 +1019,7 @@ else:
     
     **Step 1:** Upload your transaction CSV files (from your pod system)
     **Step 2:** Optionally upload marketing spend CSV files (from Facebook Ads, Google Ads, etc.)
-    **Step 3:** Get comprehensive business intelligence with flexible promotion analysis!
+    **Step 3:** Get comprehensive business intelligence with customer analytics and marketing ROI!
     
     *Transform your raw data into actionable business insights in minutes!*
     """)
