@@ -530,18 +530,40 @@ if uploaded_transaction_files:
             
             # Let user select promotion period to analyze
             if promotion_analysis['promotion_periods']:
-                selected_promotion = st.selectbox(
-                    "Select promotion period to analyze:",
-                    range(len(promotion_analysis['promotion_periods'])),
-                    format_func=lambda x: f"{promotion_analysis['promotion_periods'][x].get('campaign_name', 'Campaign')} - £{promotion_analysis['promotion_periods'][x].get('spend', 0):.0f} spend"
-                )
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    selected_promotion = st.selectbox(
+                        "1️⃣ Select Campaign Period:",
+                        range(len(promotion_analysis['promotion_periods'])),
+                        format_func=lambda x: f"{promotion_analysis['promotion_periods'][x].get('campaign_name', 'Campaign')} - £{promotion_analysis['promotion_periods'][x].get('spend', 0):.0f} spend"
+                    )
+                
+                with col2:
+                    # Get unique products from transaction data
+                    unique_products = sorted(transaction_df['Item'].unique())
+                    product_options = ['All Products'] + unique_products
+                    
+                    selected_product = st.selectbox(
+                        "2️⃣ Select Product Focus:",
+                        product_options,
+                        help="Choose 'All Products' for overall campaign performance, or select a specific product to analyze"
+                    )
                 
                 promo_period = promotion_analysis['promotion_periods'][selected_promotion]
                 
                 # Analyze selected promotion
                 if 'start_date' in promo_period and 'end_date' in promo_period:
+                    # Filter transaction data by selected product if not "All Products"
+                    analysis_df = transaction_df.copy()
+                    if selected_product != 'All Products':
+                        analysis_df = transaction_df[transaction_df['Item'] == selected_product]
+                        st.info(f"🎯 **Analyzing {selected_product}** performance during {promo_period.get('campaign_name', 'campaign')}")
+                    else:
+                        st.info(f"📊 **Analyzing all products** performance during {promo_period.get('campaign_name', 'campaign')}")
+                    
                     promo_results = analyze_promotion_performance(
-                        transaction_df, 
+                        analysis_df, 
                         promo_period['start_date'], 
                         promo_period['end_date'],
                         promo_period.get('spend', 0)
@@ -552,17 +574,19 @@ if uploaded_transaction_files:
                         col1, col2, col3, col4 = st.columns(4)
                         
                         with col1:
+                            revenue_label = f"{selected_product} Revenue" if selected_product != 'All Products' else "Campaign Revenue"
                             st.metric(
-                                "Promotion Revenue", 
+                                revenue_label, 
                                 f"£{promo_results['promotion_revenue']:,.0f}",
                                 delta=f"{promo_results['revenue_lift']:+.1f}% vs baseline"
                             )
                         
                         with col2:
+                            roi_label = f"{selected_product} ROI" if selected_product != 'All Products' else "Campaign ROI"
                             st.metric(
-                                "Promotion ROI", 
+                                roi_label, 
                                 f"{promo_results['roi']:.1f}x",
-                                help="Total revenue ÷ marketing spend"
+                                help="Revenue ÷ marketing spend"
                             )
                         
                         with col3:
@@ -581,7 +605,10 @@ if uploaded_transaction_files:
                         
                         # Product performance during promotion
                         if len(promo_results['product_performance']) > 0:
-                            st.markdown("### 🏆 Product Performance During Promotion")
+                            if selected_product == 'All Products':
+                                st.markdown("### 🏆 All Products Performance During Campaign")
+                            else:
+                                st.markdown(f"### 🏆 {selected_product} Performance During Campaign")
                             
                             col1, col2 = st.columns(2)
                             
@@ -591,7 +618,7 @@ if uploaded_transaction_files:
                                     promo_results['product_performance'].head(8), 
                                     x='Revenue', y='Item', 
                                     orientation='h', 
-                                    title="Revenue by Product (Promotion Period)"
+                                    title="Revenue by Product (Campaign Period)"
                                 )
                                 st.plotly_chart(fig_promo_revenue, use_container_width=True)
                             
@@ -601,34 +628,91 @@ if uploaded_transaction_files:
                                     promo_results['product_performance'].head(8), 
                                     x='Units_Sold', y='Item', 
                                     orientation='h', 
-                                    title="Units Sold by Product (Promotion Period)"
+                                    title="Units Sold by Product (Campaign Period)"
                                 )
                                 st.plotly_chart(fig_promo_qty, use_container_width=True)
+                            
+                            # Detailed product performance table
+                            if selected_product != 'All Products':
+                                st.markdown(f"### 📊 {selected_product} Detailed Performance")
+                                
+                                # Filter for selected product only
+                                selected_product_data = promo_results['product_performance'][
+                                    promo_results['product_performance']['Item'] == selected_product
+                                ]
+                                
+                                if len(selected_product_data) > 0:
+                                    product_row = selected_product_data.iloc[0]
+                                    
+                                    col1, col2, col3, col4 = st.columns(4)
+                                    with col1:
+                                        st.metric("Product Revenue", f"£{product_row['Revenue']:,.2f}")
+                                    with col2:
+                                        st.metric("Units Sold", f"{product_row['Units_Sold']:,.0f}")
+                                    with col3:
+                                        st.metric("Average Price", f"£{product_row['Avg_Price']:,.2f}")
+                                    with col4:
+                                        st.metric("Customers", f"{product_row['Customers']:,.0f}")
+                                else:
+                                    st.warning(f"⚠️ No {selected_product} sales during this campaign period")
                         
-                        # Promotion insights
-                        st.markdown("### 💡 Promotion Performance Insights")
+                        # Campaign attribution insights
+                        st.markdown("### 💡 Campaign Attribution Insights")
                         
-                        promo_insights = []
+                        if selected_product != 'All Products':
+                            # Product-specific insights
+                            total_campaign_revenue = promo_results['promotion_revenue']
+                            product_attribution = (total_campaign_revenue / promo_period.get('spend', 1)) if promo_period.get('spend', 0) > 0 else 0
+                            
+                            attribution_insights = []
+                            
+                            if product_attribution > 3:
+                                attribution_insights.append(f"✅ **{selected_product} campaign profitable** - {product_attribution:.1f}x ROI")
+                            elif product_attribution > 1:
+                                attribution_insights.append(f"⚠️ **{selected_product} campaign break-even** - {product_attribution:.1f}x ROI")
+                            else:
+                                attribution_insights.append(f"❌ **{selected_product} campaign unprofitable** - {product_attribution:.1f}x ROI")
+                            
+                            if promo_results['revenue_lift'] > 20:
+                                attribution_insights.append(f"📈 **Strong {selected_product} lift** - {promo_results['revenue_lift']:.1f}% increase vs baseline")
+                            elif promo_results['revenue_lift'] > 0:
+                                attribution_insights.append(f"📊 **Moderate {selected_product} lift** - {promo_results['revenue_lift']:.1f}% increase")
+                            else:
+                                attribution_insights.append(f"⚠️ **{selected_product} performance declined** during campaign")
                         
-                        if promo_results['incremental_roi'] > 5:
-                            promo_insights.append("🚀 **Excellent promotion ROI** - Scale up similar campaigns")
-                        elif promo_results['incremental_roi'] > 2:
-                            promo_insights.append("✅ **Profitable promotion** - Good incremental return")
-                        elif promo_results['incremental_roi'] > 0:
-                            promo_insights.append("⚠️ **Marginal promotion** - Consider optimization")
                         else:
-                            promo_insights.append("❌ **Unprofitable promotion** - Review strategy")
+                            # Overall campaign insights
+                            attribution_insights = []
+                            
+                            if promo_results['incremental_roi'] > 5:
+                                attribution_insights.append("🚀 **Excellent campaign ROI** - Scale up similar campaigns")
+                            elif promo_results['incremental_roi'] > 2:
+                                attribution_insights.append("✅ **Profitable campaign** - Good incremental return")
+                            elif promo_results['incremental_roi'] > 0:
+                                attribution_insights.append("⚠️ **Marginal campaign** - Consider optimization")
+                            else:
+                                attribution_insights.append("❌ **Unprofitable campaign** - Review strategy")
+                            
+                            if promo_results['revenue_lift'] > 20:
+                                attribution_insights.append(f"📈 **Strong overall lift** - {promo_results['revenue_lift']:.1f}% increase vs baseline")
+                            elif promo_results['revenue_lift'] > 10:
+                                attribution_insights.append(f"📊 **Moderate overall lift** - {promo_results['revenue_lift']:.1f}% increase")
+                            
+                            if promo_results['customer_lift'] > 15:
+                                attribution_insights.append("👥 **Great customer acquisition** - Attracting new customers")
                         
-                        if promo_results['revenue_lift'] > 20:
-                            promo_insights.append(f"📈 **Strong revenue lift** - {promo_results['revenue_lift']:.1f}% increase vs baseline")
-                        elif promo_results['revenue_lift'] > 10:
-                            promo_insights.append(f"📊 **Moderate revenue lift** - {promo_results['revenue_lift']:.1f}% increase")
-                        
-                        if promo_results['customer_lift'] > 15:
-                            promo_insights.append("👥 **Great customer acquisition** - Attracting new customers")
-                        
-                        for insight in promo_insights:
+                        for insight in attribution_insights:
                             st.info(insight)
+                
+                # Campaign comparison section
+                st.markdown("### 🔄 Quick Campaign Comparison")
+                st.info("""
+                **💡 Pro Tip:** Try analyzing different products with the same campaign to see:
+                - Which products benefited most from the campaign
+                - Overall campaign effectiveness vs product-specific impact
+                - Cross-selling opportunities (Smart Saver ad → Membership sales)
+                """)
+        
         
         elif len(marketing_df) > 0:
             st.markdown("## 🎯 Promotion Analysis")
