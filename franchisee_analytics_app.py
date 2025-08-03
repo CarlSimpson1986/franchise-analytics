@@ -171,7 +171,26 @@ def calculate_business_metrics(df):
         'revenue_per_customer': total_revenue / unique_customers if unique_customers > 0 else 0
     }
 
-def calculate_marketing_metrics(marketing_df, total_revenue):
+def get_benchmark_status(value, benchmarks):
+    """Return benchmark status and color for a metric"""
+    if value >= benchmarks['excellent']:
+        return "🟢", "Excellent"
+    elif value >= benchmarks['good']:
+        return "🟡", "Good"
+    else:
+        return "🔴", "Needs Attention"
+
+def create_metric_with_benchmark(label, value, format_str, benchmark_info, help_text):
+    """Create a metric with benchmark indicator and tooltip"""
+    if benchmark_info:
+        indicator, status = get_benchmark_status(value, benchmark_info)
+        display_label = f"{label} {indicator}"
+        help_content = f"{help_text}\n\n📊 Your performance: {status}\n🟢 Excellent: {benchmark_info['excellent']}+\n🟡 Good: {benchmark_info['good']}+\n🔴 Needs Attention: Below {benchmark_info['good']}"
+    else:
+        display_label = label
+        help_content = help_text
+    
+    return st.metric(display_label, format_str, help=help_content)
     """Calculate marketing ROI metrics"""
     if len(marketing_df) == 0 or 'Amount' not in marketing_df.columns:
         return {
@@ -373,7 +392,7 @@ if uploaded_transaction_files:
         marketing_metrics = calculate_marketing_metrics(marketing_df, business_metrics['total_revenue'])
         promotion_analysis = calculate_promotion_analysis(transaction_df, marketing_df)
         
-        # Executive Summary
+        # Executive Summary with Benchmarking
         st.markdown("## 📊 Executive Summary")
         
         if len(marketing_df) > 0 and marketing_metrics['total_spend'] > 0:
@@ -381,35 +400,61 @@ if uploaded_transaction_files:
             col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
-                st.metric("💰 Total Revenue", f"£{business_metrics['total_revenue']:,.0f}")
+                st.metric("💰 Total Revenue", f"£{business_metrics['total_revenue']:,.0f}",
+                         help="Total revenue from all transactions. This shows your overall business performance across all months.")
+            
             with col2:
-                st.metric("📱 Marketing Spend", f"£{marketing_metrics['total_spend']:,.0f}")
+                st.metric("📱 Marketing Spend", f"£{marketing_metrics['total_spend']:,.0f}",
+                         help="Total amount spent on marketing campaigns. Lower spend with high revenue = efficient marketing.")
+            
             with col3:
-                st.metric("🎯 Marketing ROI", f"{marketing_metrics['roi']:.1f}x")
+                roi_benchmarks = {'excellent': 10, 'good': 5}
+                roi_indicator, roi_status = get_benchmark_status(marketing_metrics['roi'], roi_benchmarks)
+                st.metric(f"🎯 Marketing ROI {roi_indicator}", f"{marketing_metrics['roi']:.1f}x",
+                         help=f"Return on Investment - Revenue ÷ Marketing Spend.\n\n📊 Your performance: {roi_status}\n🟢 Excellent: 10x+\n🟡 Good: 5x+\n🔴 Needs Attention: Below 5x\n\n💡 Your {marketing_metrics['roi']:.1f}x ROI means you get £{marketing_metrics['roi']:.1f} back for every £1 spent on marketing!")
+            
             with col4:
-                st.metric("👥 Customers", f"{business_metrics['unique_customers']:,}")
+                st.metric("👥 Customers", f"{business_metrics['unique_customers']:,}",
+                         help="Total number of unique customers across all months. Growing customer base = healthy business expansion.")
+            
             with col5:
                 if unique_months > 1:
                     monthly_avg = business_metrics['total_revenue'] / unique_months
-                    st.metric("📅 Monthly Avg Revenue", f"£{monthly_avg:,.0f}")
+                    target_benchmarks = {'excellent': 6500, 'good': 6000}
+                    target_indicator, target_status = get_benchmark_status(monthly_avg, target_benchmarks)
+                    st.metric(f"📅 Monthly Avg Revenue {target_indicator}", f"£{monthly_avg:,.0f}",
+                             help=f"Average monthly revenue across all months.\n\n📊 Your performance: {target_status}\n🟢 Excellent: £6,500+\n🟡 Good: £6,000+ (target)\n🔴 Needs Attention: Below £6,000\n\n💡 You need £{max(0, 6000-monthly_avg):,.0f} more per month to reach the £6K target.")
                 else:
-                    st.metric("💰 Profit After Ads", f"£{marketing_metrics['profit_after_ads']:,.0f}")
+                    st.metric("💰 Profit After Ads", f"£{marketing_metrics['profit_after_ads']:,.0f}",
+                             help="Revenue minus marketing costs = actual profit from campaigns. Higher profit = more money to reinvest in growth.")
         else:
             # Without marketing data - 4 columns
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("💰 Total Revenue", f"£{business_metrics['total_revenue']:,.0f}")
+                st.metric("💰 Total Revenue", f"£{business_metrics['total_revenue']:,.0f}",
+                         help="Total revenue from all transactions. This shows your overall business performance across all months.")
+            
             with col2:
-                st.metric("📈 Transactions", f"{business_metrics['total_transactions']:,}")
+                st.metric("📈 Transactions", f"{business_metrics['total_transactions']:,}",
+                         help="Total number of transactions. More transactions = higher business activity and customer engagement.")
+            
             with col3:
-                st.metric("👥 Customers", f"{business_metrics['unique_customers']:,}")
+                st.metric("👥 Customers", f"{business_metrics['unique_customers']:,}",
+                         help="Total number of unique customers. Growing customer base = healthy business expansion.")
+            
             with col4:
                 if unique_months > 1:
                     monthly_avg = business_metrics['total_revenue'] / unique_months
-                    st.metric("📅 Monthly Average", f"£{monthly_avg:,.0f}")
+                    target_benchmarks = {'excellent': 6500, 'good': 6000}
+                    target_indicator, target_status = get_benchmark_status(monthly_avg, target_benchmarks)
+                    st.metric(f"📅 Monthly Average {target_indicator}", f"£{monthly_avg:,.0f}",
+                             help=f"Average monthly revenue across all months.\n\n📊 Your performance: {target_status}\n🟢 Excellent: £6,500+\n🟡 Good: £6,000+ (target)\n🔴 Needs Attention: Below £6,000\n\n💡 You need £{max(0, 6000-monthly_avg):,.0f} more per month to reach the £6K target.")
                 else:
-                    st.metric("💳 Avg Transaction", f"£{business_metrics['avg_transaction']:.2f}")
+                    avg_transaction_benchmarks = {'excellent': 30, 'good': 20}
+                    avg_trans_indicator, avg_trans_status = get_benchmark_status(business_metrics['avg_transaction'], avg_transaction_benchmarks)
+                    st.metric(f"💳 Avg Transaction {avg_trans_indicator}", f"£{business_metrics['avg_transaction']:.2f}",
+                             help=f"Average value per transaction.\n\n📊 Your performance: {avg_trans_status}\n🟢 Excellent: £30+\n🟡 Good: £20+\n🔴 Needs Attention: Below £20\n\n💡 Higher average transaction value = more revenue per customer visit.")
         
         st.markdown("---")
         
@@ -488,24 +533,32 @@ if uploaded_transaction_files:
                                                          bins=[0, 25, 75, 150, float('inf')], 
                                                          labels=['Low Value', 'Medium Value', 'High Value', 'VIP'])
             
-            # Overall LTV metrics
+            # Overall LTV metrics with benchmarking
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 avg_ltv = customer_analysis['LTV'].mean()
-                st.metric("💎 Average Customer LTV", f"£{avg_ltv:.2f}")
+                ltv_benchmarks = {'excellent': 100, 'good': 50}
+                ltv_indicator, ltv_status = get_benchmark_status(avg_ltv, ltv_benchmarks)
+                st.metric(f"💎 Average Customer LTV {ltv_indicator}", f"£{avg_ltv:.2f}",
+                         help=f"Customer Lifetime Value - total revenue per customer over their entire relationship with your business.\n\n📊 Your performance: {ltv_status}\n🟢 Excellent: £100+\n🟡 Good: £50+\n🔴 Needs Attention: Below £50\n\n💡 Higher LTV = more valuable customers. Focus on retention and upselling to increase LTV.")
             
             with col2:
                 median_ltv = customer_analysis['LTV'].median()
-                st.metric("📊 Median Customer LTV", f"£{median_ltv:.2f}")
+                st.metric("📊 Median Customer LTV", f"£{median_ltv:.2f}",
+                         help="The middle value of customer LTV (50% above, 50% below). Often more representative than average as it's not skewed by very high-value customers.")
             
             with col3:
                 avg_transactions = customer_analysis['Transactions'].mean()
-                st.metric("🔄 Avg Transactions/Customer", f"{avg_transactions:.1f}")
+                transaction_freq_benchmarks = {'excellent': 8, 'good': 4}
+                trans_indicator, trans_status = get_benchmark_status(avg_transactions, transaction_freq_benchmarks)
+                st.metric(f"🔄 Avg Transactions/Customer {trans_indicator}", f"{avg_transactions:.1f}",
+                         help=f"Average number of purchases per customer.\n\n📊 Your performance: {trans_status}\n🟢 Excellent: 8+ transactions\n🟡 Good: 4+ transactions\n🔴 Needs Attention: Below 4\n\n💡 More transactions per customer = better retention and engagement.")
             
             with col4:
                 avg_frequency = customer_analysis['Purchase_Frequency'].mean()
-                st.metric("📅 Avg Purchase Frequency", f"{avg_frequency:.1f}/month")
+                st.metric("📅 Avg Purchase Frequency", f"{avg_frequency:.1f}/month",
+                         help="How often customers make purchases per month. Higher frequency = more engaged customers who visit regularly.")
             
             # LTV Distribution and Customer Segments
             col1, col2 = st.columns(2)
@@ -571,24 +624,54 @@ if uploaded_transaction_files:
                 if cac_analysis:
                     cac_df = pd.DataFrame(cac_analysis)
                     
-                    # CAC Metrics
+                    # CAC Metrics with benchmarking
                     col1, col2, col3, col4 = st.columns(4)
                     
                     with col1:
                         avg_cac = cac_df['CAC'].mean()
-                        st.metric("📈 Average CAC", f"£{avg_cac:.2f}")
+                        cac_benchmarks = {'excellent': 0, 'good': 30}  # Lower is better for CAC
+                        if avg_cac <= 15:
+                            cac_indicator, cac_status = "🟢", "Excellent"
+                        elif avg_cac <= 30:
+                            cac_indicator, cac_status = "🟡", "Good"
+                        else:
+                            cac_indicator, cac_status = "🔴", "Needs Attention"
+                        
+                        st.metric(f"📈 Average CAC {cac_indicator}", f"£{avg_cac:.2f}",
+                                 help=f"Customer Acquisition Cost - how much you spend to acquire each new customer.\n\n📊 Your performance: {cac_status}\n🟢 Excellent: £15 or less\n🟡 Good: £15-30\n🔴 Needs Attention: Above £30\n\n💡 Lower CAC = more efficient marketing. Your £{avg_cac:.2f} CAC is {'exceptional' if avg_cac <= 15 else 'reasonable' if avg_cac <= 30 else 'high'}!")
                     
                     with col2:
                         avg_ltv_new = cac_df['Avg_New_Customer_LTV'].mean()
-                        st.metric("💎 New Customer Avg LTV", f"£{avg_ltv_new:.2f}")
+                        st.metric("💎 New Customer Avg LTV", f"£{avg_ltv_new:.2f}",
+                                 help="Average Lifetime Value of customers acquired during marketing campaigns. This shows the quality of customers your marketing attracts.")
                     
                     with col3:
                         avg_ratio = cac_df['LTV_CAC_Ratio'].mean()
-                        st.metric("⚖️ LTV:CAC Ratio", f"{avg_ratio:.1f}:1")
+                        if avg_ratio >= 5:
+                            ratio_indicator, ratio_status = "🟢", "Excellent"
+                        elif avg_ratio >= 3:
+                            ratio_indicator, ratio_status = "🟡", "Good"
+                        else:
+                            ratio_indicator, ratio_status = "🔴", "Needs Attention"
+                        
+                        st.metric(f"⚖️ LTV:CAC Ratio {ratio_indicator}", f"{avg_ratio:.1f}:1",
+                                 help=f"Customer value vs acquisition cost ratio.\n\n📊 Your performance: {ratio_status}\n🟢 Excellent: 5:1 or higher\n🟡 Good: 3:1 to 5:1\n🔴 Needs Attention: Below 3:1\n\n💡 Your {avg_ratio:.1f}:1 ratio means each £1 spent on marketing returns £{avg_ratio:.1f} in customer value. {'Scale up marketing immediately!' if avg_ratio >= 5 else 'Good profitable marketing' if avg_ratio >= 3 else 'Review marketing efficiency'}")
                     
                     with col4:
                         avg_payback = cac_df[cac_df['Payback_Months'] != float('inf')]['Payback_Months'].mean()
-                        st.metric("⏱️ Avg Payback Period", f"{avg_payback:.1f} months" if not pd.isna(avg_payback) else "N/A")
+                        if not pd.isna(avg_payback):
+                            if avg_payback <= 3:
+                                payback_indicator, payback_status = "🟢", "Excellent"
+                            elif avg_payback <= 6:
+                                payback_indicator, payback_status = "🟡", "Good"
+                            else:
+                                payback_indicator, payback_status = "🔴", "Needs Attention"
+                            
+                            st.metric(f"⏱️ Avg Payback Period {payback_indicator}", f"{avg_payback:.1f} months",
+                                     help=f"Time to recover customer acquisition costs through their purchases.\n\n📊 Your performance: {payback_status}\n🟢 Excellent: 3 months or less\n🟡 Good: 3-6 months\n🔴 Needs Attention: Above 6 months\n\n💡 Faster payback = quicker return on marketing investment.")
+                        else:
+                            st.metric("⏱️ Avg Payback Period", "N/A",
+                                     help="Time to recover customer acquisition costs. Cannot calculate with current data - may indicate instant profitability!")
                     
                     # CAC Analysis Charts
                     col1, col2 = st.columns(2)
