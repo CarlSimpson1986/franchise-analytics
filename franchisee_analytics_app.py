@@ -390,9 +390,6 @@ def calculate_customer_acquisition_analysis(df, marketing_campaigns):
 st.title("🏋️ MyFitPod Complete Business Analytics")
 st.markdown("*Professional Business Intelligence with Marketing ROI Tracking*")
 
-# Add Help Guide at the top
-show_help_guide()
-
 # Sidebar for file uploads
 st.sidebar.header("📊 Upload Your Data")
 st.sidebar.markdown("Upload your business data for comprehensive analytics")
@@ -461,6 +458,9 @@ if transaction_files:
         st.markdown("---")
         st.markdown("## 🏋️ MyFitPod Complete Business Analytics")
         st.markdown("*Professional Business Intelligence with Marketing ROI Tracking*")
+        
+        # Add Help Guide AFTER data is loaded
+        show_help_guide()
         
         # File loading status
         st.markdown("### 📁 File Loading Status")
@@ -644,3 +644,281 @@ if transaction_files:
                 st.plotly_chart(fig_customers, use_container_width=True)
             
             # High-Value Customer Analysis
+            st.markdown("### 💎 High-Value Customer Analysis")
+            
+            # Top customers
+            top_customers = customer_metrics['customer_data'].nlargest(10, 'LTV')
+            st.markdown("#### 🏆 Top 10 Customers by LTV:")
+            
+            for i, (_, customer) in enumerate(top_customers.iterrows(), 1):
+                col1, col2, col3 = st.columns([2, 1, 1])
+                with col1:
+                    st.write(f"{i}. {customer['Sold To']}")
+                with col2:
+                    st.write(f"£{customer['LTV']:.2f}")
+                with col3:
+                    st.write(f"{customer['Transaction_Count']} purchases")
+            
+            # Customer segments
+            st.markdown("#### 📊 Customer Segment Analysis:")
+            segment_data = customer_metrics['segment_counts']
+            for segment, count in segment_data.items():
+                percentage = (count / len(customer_metrics['customer_data'])) * 100
+                st.write(f"**{segment}**: {count} customers ({percentage:.1f}%)")
+        
+        # Product Performance Analysis
+        st.markdown("### 💰 Product Performance Analysis")
+        
+        if 'Item' in transaction_df.columns and 'Quantity Sold' in transaction_df.columns:
+            # Product analysis with quantities
+            product_analysis = transaction_df.groupby('Item').agg({
+                'Amount Inc Tax': 'sum',
+                'Quantity Sold': 'sum',
+                'Sold To': 'nunique'
+            }).round(2)
+            product_analysis.columns = ['Revenue', 'Units_Sold', 'Customers']
+            product_analysis['Avg_Price'] = (product_analysis['Revenue'] / product_analysis['Units_Sold']).round(2)
+            product_analysis = product_analysis.sort_values('Revenue', ascending=False)
+            
+            # Top products charts
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig_revenue = px.bar(product_analysis.head(10).reset_index(), 
+                                   x='Item', y='Revenue',
+                                   title="Top 10 Products by Revenue")
+                fig_revenue.update_xaxes(tickangle=45)
+                st.plotly_chart(fig_revenue, use_container_width=True)
+            
+            with col2:
+                fig_quantity = px.bar(product_analysis.head(10).reset_index(), 
+                                    x='Item', y='Units_Sold',
+                                    title="Top 10 Products by Quantity Sold")
+                fig_quantity.update_xaxes(tickangle=45)
+                st.plotly_chart(fig_quantity, use_container_width=True)
+            
+            # Product performance table
+            st.markdown("#### 📊 Product Quantity & Performance Analysis")
+            display_product_df = product_analysis.reset_index()
+            display_product_df['Revenue'] = display_product_df['Revenue'].apply(lambda x: f"£{x:.2f}")
+            display_product_df['Avg_Price'] = display_product_df['Avg_Price'].apply(lambda x: f"£{x:.2f}")
+            display_product_df.columns = ['Product', 'Revenue', 'Units Sold', 'Customers', 'Avg Price']
+            st.dataframe(display_product_df, use_container_width=True)
+            
+            st.markdown("**Product Performance Summary:**")
+            total_units = product_analysis['Units_Sold'].sum()
+            top_product = product_analysis.index[0]
+            top_units = product_analysis.iloc[0]['Units_Sold']
+            st.info(f"🏆 **{top_product}** is your top seller with {top_units} units ({(top_units/total_units)*100:.1f}% of total sales)")
+        
+        # Promotion Period Analysis
+        if len(marketing_df) > 0:
+            st.markdown("### 🎯 Promotion Period Analysis")
+            st.markdown("📈 *Intelligent promotion tracking - Analyze any campaign period performance vs baseline*")
+            
+            promotion_analysis = calculate_promotion_analysis(transaction_df, marketing_df)
+            if promotion_analysis:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("#### 1️⃣ Select Campaign Period:")
+                    campaign_options = [campaign['display'] for campaign in promotion_analysis]
+                    selected_campaign_display = st.selectbox("Choose campaign to analyze:", campaign_options)
+                    
+                    # Find selected campaign info
+                    selected_campaign = None
+                    for campaign in promotion_analysis:
+                        if campaign['display'] == selected_campaign_display:
+                            selected_campaign = campaign
+                            break
+                
+                with col2:
+                    st.markdown("#### 2️⃣ Select Product Focus:")
+                    product_options = ['All Products'] + sorted(transaction_df['Item'].unique().tolist())
+                    selected_product = st.selectbox("Analyze specific product or all products:", product_options)
+                
+                if selected_campaign:
+                    st.markdown(f"#### 📊 Analyzing {selected_product.lower()} performance during {selected_campaign['name']}")
+                    
+                    # Calculate campaign performance
+                    campaign_performance = analyze_campaign_performance(transaction_df, selected_campaign, selected_product)
+                    
+                    # Display campaign metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Campaign Revenue", f"£{campaign_performance['campaign_revenue']:,.0f}",
+                                delta=f"+{campaign_performance['revenue_lift_pct']:.1f}% vs baseline")
+                    
+                    with col2:
+                        roi_indicator = get_marketing_roi_indicator(campaign_performance['campaign_roi'])
+                        st.metric("Campaign ROI", f"{campaign_performance['campaign_roi']:.1f}x")
+                        st.markdown(f"**ROI Performance** {roi_indicator}")
+                    
+                    with col3:
+                        incremental_roi_indicator = get_marketing_roi_indicator(campaign_performance['incremental_roi'])
+                        st.metric("Incremental ROI", f"{campaign_performance['incremental_roi']:.1f}x")
+                        st.markdown(f"**Incremental Performance** {incremental_roi_indicator}")
+                    
+                    with col4:
+                        st.metric("Customer Lift", f"+{campaign_performance['customer_lift_pct']:.1f}%")
+                    
+                    # Campaign performance visualization
+                    if selected_product == 'All Products':
+                        product_performance = transaction_df.groupby('Item')['Amount Inc Tax'].sum().sort_values(ascending=False).head(8)
+                        
+                        st.markdown("#### 🏆 All Products Performance During Campaign")
+                        fig_campaign_products = px.bar(
+                            x=product_performance.index,
+                            y=product_performance.values,
+                            title=f"Product Performance During {selected_campaign['name']}"
+                        )
+                        fig_campaign_products.update_xaxes(tickangle=45)
+                        fig_campaign_products.update_layout(xaxis_title="Product", yaxis_title="Revenue (£)")
+                        st.plotly_chart(fig_campaign_products, use_container_width=True)
+                    
+                    # Campaign insights
+                    st.markdown("#### 💡 Campaign Attribution Insights")
+                    if campaign_performance['campaign_roi'] >= 10:
+                        st.success("🚀 Excellent campaign ROI - Scale up similar campaigns")
+                    elif campaign_performance['campaign_roi'] >= 5:
+                        st.success("✅ Good campaign performance - Consider expanding")
+                    elif campaign_performance['campaign_roi'] >= 3:
+                        st.warning("⚠️ Moderate campaign performance - Optimize targeting")
+                    else:
+                        st.error("❌ Low campaign ROI - Review strategy")
+                    
+                    if campaign_performance['revenue_lift_pct'] > 10:
+                        st.success(f"📈 Strong revenue lift of {campaign_performance['revenue_lift_pct']:.1f}% indicates effective campaign")
+                    elif campaign_performance['revenue_lift_pct'] > 5:
+                        st.info(f"📊 Moderate revenue lift of {campaign_performance['revenue_lift_pct']:.1f}% shows campaign impact")
+                    else:
+                        st.warning(f"📉 Low revenue lift of {campaign_performance['revenue_lift_pct']:.1f}% suggests limited campaign effectiveness")
+                
+                # Quick campaign comparison
+                st.markdown("#### 🔄 Quick Campaign Comparison")
+                comparison_data = []
+                for campaign in promotion_analysis[:3]:  # Top 3 campaigns by spend
+                    perf = analyze_campaign_performance(transaction_df, campaign, 'All Products')
+                    comparison_data.append({
+                        'Campaign': campaign['name'],
+                        'Spend': f"£{campaign['spend']:.0f}",
+                        'Revenue': f"£{perf['campaign_revenue']:,.0f}",
+                        'ROI': f"{perf['campaign_roi']:.1f}x",
+                        'Lift': f"+{perf['revenue_lift_pct']:.1f}%"
+                    })
+                
+                if comparison_data:
+                    comparison_df = pd.DataFrame(comparison_data)
+                    st.dataframe(comparison_df, use_container_width=True)
+                
+                # Pro tip
+                st.markdown("#### 💡 Pro Tip: Try analyzing different products with the same campaign to see:")
+                st.markdown("* Which products benefited most from the campaign")
+                st.markdown("* Overall campaign effectiveness vs product-specific impact") 
+                st.markdown("* Cross-selling opportunities (Smart Saver ad → Membership sales)")
+        
+        # Multi-month trend analysis
+        if 'Month_Name' in transaction_df.columns and transaction_df['Month'].nunique() > 1:
+            st.markdown("### 📈 Multi-Month Performance Trends")
+            
+            # Monthly revenue trend
+            monthly_data = transaction_df.groupby('Month_Name').agg({
+                'Amount Inc Tax': 'sum',
+                'Sold To': 'nunique',
+                'Item': 'count'
+            }).round(2)
+            monthly_data.columns = ['Revenue', 'Customers', 'Transactions']
+            monthly_data = monthly_data.reset_index()
+            
+            # Revenue trend with target line
+            fig_trend = px.line(monthly_data, x='Month_Name', y='Revenue',
+                              title="Monthly Revenue Trend vs £6K Target",
+                              labels={'Revenue': 'Revenue (£)', 'Month_Name': 'Month'},
+                              markers=True)
+            
+            # Add target line
+            fig_trend.add_hline(y=6000, line_dash="dash", line_color="red", 
+                              annotation_text="£6K Target")
+            
+            st.plotly_chart(fig_trend, use_container_width=True)
+            
+            # Monthly performance vs target
+            monthly_data['Target_Achievement'] = (monthly_data['Revenue'] / 6000 * 100).round(1)
+            monthly_data['Status'] = monthly_data['Target_Achievement'].apply(
+                lambda x: '🟢 Above Target' if x >= 100 else '🟡 Close to Target' if x >= 80 else '🔴 Below Target'
+            )
+            
+            st.markdown("#### 📊 Monthly Target Achievement")
+            display_monthly = monthly_data.copy()
+            display_monthly['Revenue'] = display_monthly['Revenue'].apply(lambda x: f"£{x:,.0f}")
+            display_monthly['Target_Achievement'] = display_monthly['Target_Achievement'].apply(lambda x: f"{x:.1f}%")
+            display_monthly.columns = ['Month', 'Revenue', 'Customers', 'Transactions', 'Target %', 'Status']
+            st.dataframe(display_monthly, use_container_width=True)
+            
+            # Target achievement summary
+            months_above_target = len(monthly_data[monthly_data['Target_Achievement'] >= 100])
+            total_months = len(monthly_data)
+            success_rate = (months_above_target / total_months) * 100
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Months Above Target", f"{months_above_target}/{total_months}")
+            with col2:
+                success_indicator = "🟢" if success_rate >= 70 else "🟡" if success_rate >= 50 else "🔴"
+                st.metric("Success Rate", f"{success_rate:.1f}%")
+                st.markdown(f"**Performance** {success_indicator}")
+            with col3:
+                avg_achievement = monthly_data['Target_Achievement'].mean()
+                st.metric("Avg Target Achievement", f"{avg_achievement:.1f}%")
+        
+        # Business Intelligence Insights
+        st.markdown("### 💡 Business Intelligence Insights")
+        
+        # Revenue model analysis
+        if 'Category' in transaction_df.columns:
+            category_revenue = transaction_df.groupby('Category')['Amount Inc Tax'].sum()
+            if 'MEMBERSHIP' in category_revenue.index and 'CREDIT_PACK' in category_revenue.index:
+                membership_pct = (category_revenue['MEMBERSHIP'] / category_revenue.sum()) * 100
+                if membership_pct >= 60:
+                    st.success("⚖️ Strong subscription focus - Good recurring revenue model")
+                elif membership_pct >= 40:
+                    st.info("⚖️ Balanced revenue model - Good mix of recurring and flexible revenue")
+                else:
+                    st.warning("⚖️ PAYG-heavy model - Consider promoting memberships for predictable revenue")
+        
+        # Marketing insights
+        if marketing_metrics['roi'] >= 10:
+            st.success("🚀 Excellent marketing ROI - Scale up advertising investment")
+        elif marketing_metrics['roi'] >= 5:
+            st.success("✅ Good marketing ROI - Marketing is profitable")
+        elif marketing_metrics['roi'] > 0:
+            st.warning("⚠️ Moderate marketing ROI - Optimize campaigns for better efficiency")
+        
+        # Revenue gap analysis
+        if business_metrics['monthly_avg'] < 6000:
+            gap = 6000 - business_metrics['monthly_avg']
+            st.info(f"📈 Growth needed - £{gap:.0f} more monthly to hit £6K target")
+        else:
+            excess = business_metrics['monthly_avg'] - 6000
+            st.success(f"🎯 Target exceeded - £{excess:.0f} above £6K monthly target")
+        
+        # Customer value insight
+        if business_metrics['unique_customers'] > 0:
+            revenue_per_customer = business_metrics['total_revenue'] / business_metrics['unique_customers']
+            if revenue_per_customer >= 100:
+                st.success("💎 High customer value - Strong revenue per customer")
+            elif revenue_per_customer >= 50:
+                st.info("💰 Good customer value - Solid revenue per customer")
+            else:
+                st.warning("📈 Focus on increasing customer value through upselling")
+
+else:
+    st.info("👈 Upload your transaction CSV files to get started with comprehensive business analytics!")
+    st.markdown("### 🚀 What You'll Get:")
+    st.markdown("✅ **Revenue Analysis** - Track performance vs £6K targets")
+    st.markdown("✅ **Marketing ROI** - Measure campaign effectiveness") 
+    st.markdown("✅ **Customer Intelligence** - LTV, CAC, and segmentation")
+    st.markdown("✅ **Product Performance** - Best sellers and trends")
+    st.markdown("✅ **Promotion Analysis** - Campaign impact measurement")
+    st.markdown("✅ **Business Insights** - Automated recommendations")
