@@ -16,6 +16,18 @@ def show_help_guide():
     """Display help guide for franchisees"""
     with st.expander("📋 **What Do These Numbers Mean? - Franchisee Guide**", expanded=False):
         st.markdown("""
+        ### 🎯 **Performance Indicators**
+        
+        Throughout your dashboard, you'll see these performance indicators:
+        
+        🟢 **Excellent Performance** - Top 10% industry performance, scale up immediately!
+        
+        🟡 **Good Performance** - Industry average, room for optimization
+        
+        🔴 **Needs Attention** - Below average, priority action required
+        
+        ---
+        
         ### 💰 **Revenue Metrics**
         
         **Total Revenue**: Your total sales across all periods
@@ -64,11 +76,11 @@ def show_help_guide():
         
         ### 🎯 **What Should I Do?**
         
-        **If you see lots of 🟢**: Scale up what's working! Increase marketing spend.
+        **If you see lots of 🟢 (green indicators)**: Scale up what's working! Increase marketing spend.
         
-        **If you see 🟡**: Good performance, optimize to reach excellent.
+        **If you see 🟡 (yellow indicators)**: Good performance, optimize to reach excellent.
         
-        **If you see 🔴**: Priority action needed - review strategy or get support.
+        **If you see 🔴 (red indicators)**: Priority action needed - review strategy or get support.
         
         ### 📞 **Need Help?**
         Use these insights to:
@@ -147,8 +159,14 @@ def process_transaction_data(df):
     if date_col:
         df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce')
         df = df.dropna(subset=[date_col])
+        
+        # Create proper chronological month ordering
         df['Month'] = df[date_col].dt.to_period('M')
-        df['Month_Name'] = df[date_col].dt.strftime('%B %Y')
+        df['Year'] = df[date_col].dt.year
+        df['Month_Num'] = df[date_col].dt.month
+        df['Month_Name'] = df[date_col].dt.strftime('%B %Y')  # This gives us "January 2025", "February 2025" etc
+        df['Sort_Key'] = df[date_col].dt.year * 100 + df[date_col].dt.month  # 202501, 202502, 202504, 202507
+        
         df = df.sort_values(date_col)
     
     return df
@@ -822,8 +840,8 @@ if transaction_files:
         if 'Month_Name' in transaction_df.columns and transaction_df['Month'].nunique() > 1:
             st.markdown("### 📈 Multi-Month Performance Trends")
             
-            # Monthly revenue trend
-            monthly_data = transaction_df.groupby('Month_Name').agg({
+            # Group by month and sort by the Sort_Key we created
+            monthly_data = transaction_df.groupby(['Month_Name', 'Sort_Key']).agg({
                 'Amount Inc Tax': 'sum',
                 'Sold To': 'nunique',
                 'Item': 'count'
@@ -831,11 +849,17 @@ if transaction_files:
             monthly_data.columns = ['Revenue', 'Customers', 'Transactions']
             monthly_data = monthly_data.reset_index()
             
-            # Revenue trend with target line
+            # Sort by Sort_Key (202501, 202502, 202504, 202507)
+            monthly_data = monthly_data.sort_values('Sort_Key')
+            
+            # Revenue trend with target line - use the sorted order
             fig_trend = px.line(monthly_data, x='Month_Name', y='Revenue',
-                              title="Monthly Revenue Trend vs £6K Target",
+                              title="Monthly Revenue Trend vs £6K Target", 
                               labels={'Revenue': 'Revenue (£)', 'Month_Name': 'Month'},
                               markers=True)
+            
+            # Force the x-axis to respect our order
+            fig_trend.update_xaxes(categoryorder='array', categoryarray=monthly_data['Month_Name'].tolist())
             
             # Add target line
             fig_trend.add_hline(y=6000, line_dash="dash", line_color="red", 
@@ -843,7 +867,7 @@ if transaction_files:
             
             st.plotly_chart(fig_trend, use_container_width=True)
             
-            # Monthly performance vs target
+            # Monthly performance vs target  
             monthly_data['Target_Achievement'] = (monthly_data['Revenue'] / 6000 * 100).round(1)
             monthly_data['Status'] = monthly_data['Target_Achievement'].apply(
                 lambda x: '🟢 Above Target' if x >= 100 else '🟡 Close to Target' if x >= 80 else '🔴 Below Target'
@@ -853,6 +877,8 @@ if transaction_files:
             display_monthly = monthly_data.copy()
             display_monthly['Revenue'] = display_monthly['Revenue'].apply(lambda x: f"£{x:,.0f}")
             display_monthly['Target_Achievement'] = display_monthly['Target_Achievement'].apply(lambda x: f"{x:.1f}%")
+            # Keep only the columns we want to display, in proper order
+            display_monthly = display_monthly[['Month_Name', 'Revenue', 'Customers', 'Transactions', 'Target_Achievement', 'Status']]
             display_monthly.columns = ['Month', 'Revenue', 'Customers', 'Transactions', 'Target %', 'Status']
             st.dataframe(display_monthly, use_container_width=True)
             
