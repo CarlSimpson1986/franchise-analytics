@@ -922,3 +922,4 @@ else:
     st.markdown("✅ **Product Performance** - Best sellers and trends")
     st.markdown("✅ **Promotion Analysis** - Campaign impact measurement")
     st.markdown("✅ **Business Insights** - Automated recommendations")
+    
