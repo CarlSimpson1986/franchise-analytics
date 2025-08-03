@@ -171,6 +171,35 @@ def calculate_business_metrics(df):
         'revenue_per_customer': total_revenue / unique_customers if unique_customers > 0 else 0
     }
 
+def calculate_marketing_metrics(marketing_df, total_revenue):
+    """Calculate marketing ROI metrics"""
+    if len(marketing_df) == 0 or 'Amount' not in marketing_df.columns:
+        return {
+            'total_spend': 0,
+            'roi': 0,
+            'cost_per_revenue': 0,
+            'profit_after_ads': total_revenue
+        }
+    
+    try:
+        total_spend = marketing_df['Amount'].sum()
+        roi = (total_revenue / total_spend) if total_spend > 0 else 0
+        cost_per_revenue = (total_spend / total_revenue) if total_revenue > 0 else 0
+        
+        return {
+            'total_spend': total_spend,
+            'roi': roi,
+            'cost_per_revenue': cost_per_revenue,
+            'profit_after_ads': total_revenue - total_spend
+        }
+    except:
+        return {
+            'total_spend': 0,
+            'roi': 0,
+            'cost_per_revenue': 0,
+            'profit_after_ads': total_revenue
+        }
+
 def get_benchmark_status(value, benchmarks):
     """Return benchmark status and color for a metric"""
     if value >= benchmarks['excellent']:
